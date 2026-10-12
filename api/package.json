@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/finish-build.mjs",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "db:seed": "tsx --env-file-if-exists=.env src/seed.ts",
     "test": "vitest run",
