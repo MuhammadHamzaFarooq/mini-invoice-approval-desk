@@ -6,8 +6,10 @@
  * process in practice, so status history is modelled explicitly rather than
  * inferred from an updatedAt column.
  *
- * SQLite via better-sqlite3. No ORM engine binary, no codegen step — the
- * reviewer runs `npm install` and the database is a file.
+ * SQLite via libSQL. No ORM engine binary, no codegen step, no native module to
+ * compile — the reviewer runs `npm install` and the database is a local file.
+ * The same schema and the same queries run against a hosted database in
+ * deployment; only the connection URL changes. See db/index.ts.
  */
 
 import { sql, relations } from 'drizzle-orm';
