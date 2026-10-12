@@ -1,0 +1,70 @@
+# CodeRabbit configuration.
+# Docs: https://docs.coderabbit.ai/reference/configuration
+#
+# Profile is "chill" on purpose: this repo is small and deliberate, so the
+# useful signal is real defects, not style nits a linter already covers.
+
+language: "en-US"
+tone_instructions: "Be direct and specific. Skip praise. Name the failure case, not the preference."
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/dist/**"
+    - "!**/coverage/**"
+    - "!**/*.db"
+
+  path_instructions:
+    - path: "api/src/routes/**"
+      instructions: >-
+        HTTP boundary. Check that every request body and query string is
+        validated with Zod before use, that errors return the documented
+        shape ({ error, message }) with the right status (400 INVALID_BODY /
+        INVALID_QUERY, 404 NOT_FOUND, 409 ILLEGAL_TRANSITION), and that no
+        stack trace or internal detail reaches the client.
+
+    - path: "api/src/lib/status.ts"
+      instructions: >-
+        Status state machine. approved and rejected are terminal. Flag any
+        change that would allow a transition out of a terminal state, or that
+        lets a reviewer set a status outside REVIEWER_SETTABLE.
+
+    - path: "api/src/lib/duplicates.ts"
+      instructions: >-
+        Duplicate detection. This must stay pure and synchronous with no DB
+        access. Amounts are integer cents — flag any float arithmetic or
+        equality on money. Check that vendor normalisation cannot throw on
+        empty or punctuation-only input, and that detection only ever flags,
+        never auto-rejects.
+
+    - path: "api/src/db/**"
+      instructions: >-
+        Schema and connection. Check that a status change and its
+        status_events audit row are written in the same transaction, and that
+        schema creation stays idempotent.
+
+    - path: "web/src/**"
+      instructions: >-
+        React UI. Status must come from the API response, never applied
+        optimistically. Check that in-flight requests are aborted on unmount
+        or re-fetch, that the decision buttons cannot double-submit, and that
+        the drawer keeps its dialog semantics (focus handling, Escape to
+        close).
+
+    - path: "**/*.test.ts"
+      instructions: >-
+        Check that assertions would actually fail if the behaviour regressed,
+        and that the tested case matches what the test name claims.
+
+  auto_review:
+    enabled: true
+    drafts: false
+
+chat:
+  auto_reply: true

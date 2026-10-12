@@ -1,0 +1,38 @@
+# Render blueprint for the API.
+#
+# Render is used rather than a serverless platform because this API stores
+# state in a SQLite file. Serverless functions get an ephemeral filesystem —
+# a write in one invocation is not visible to the next — so a persistent disk
+# is a hard requirement, not a preference.
+#
+# The disk below is mounted at /data and DATABASE_FILE points into it, so the
+# database survives restarts and redeploys.
+#
+# Deploy: Render dashboard -> New -> Blueprint -> pick this repo.
+# Note: persistent disks are a paid feature on Render. See DEPLOYMENT.md for
+# the free alternative (Turso), which needs a small driver change.
+
+services:
+  - type: web
+    name: invoice-approval-desk-api
+    runtime: node
+    plan: starter
+    rootDir: api
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_FILE
+        value: /data/invoices.db
+      - key: PORT
+        value: "4000"
+      # Set this to the deployed frontend's origin after the web app is live,
+      # then redeploy. Leave unset and the API allows any origin.
+      - key: CORS_ORIGIN
+        sync: false
+    disk:
+      name: invoice-data
+      mountPath: /data
+      sizeGB: 1
