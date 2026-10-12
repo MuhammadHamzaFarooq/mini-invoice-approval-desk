@@ -38,9 +38,9 @@ const PORT = Number(process.env.PORT ?? 4000);
 const entry = process.argv[1] ?? '';
 if (entry.endsWith('index.ts') || entry.endsWith('index.js')) {
   // Idempotent CREATE TABLE IF NOT EXISTS. Without this a fresh deployment
-  // starts against an empty database file and every query fails — the seed
-  // script is not guaranteed to have run on the host.
-  initialiseSchema();
+  // starts against an empty database and every query fails — the seed script
+  // is not guaranteed to have run against this database.
+  await initialiseSchema();
 
   createApp().listen(PORT, () => {
     console.log(`Invoice approval desk API listening on http://localhost:${PORT}`);

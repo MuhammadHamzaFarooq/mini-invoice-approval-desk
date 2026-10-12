@@ -1,0 +1,14 @@
+{
+  // Build config, separate from tsconfig.json on purpose.
+  //
+  // tsconfig.json type-checks everything — src, tests, and the Vercel function
+  // entry — which forces rootDir to the package root. Emitting with that config
+  // produces dist/src/index.js, so `node dist/index.js` finds nothing. This
+  // config compiles only src, so the entry point lands where package.json's
+  // "main" and "start" say it is.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -1,14 +1,26 @@
-import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { createClient } from '@libsql/client';
+import { drizzle } from 'drizzle-orm/libsql';
 import * as schema from './schema.js';
 
-const DB_FILE = process.env.DATABASE_FILE ?? 'invoices.db';
+/**
+ * One driver for both environments.
+ *
+ * libSQL speaks to a local file (`file:invoices.db`) and to a hosted Turso
+ * database (`libsql://...`) through the same client, so local development needs
+ * no extra setup and the deployed API needs no separate code path. The reason
+ * it is not `better-sqlite3` is deployment: this API runs as a serverless
+ * function, where the filesystem is ephemeral and a row written during one
+ * invocation is not there on the next. A database reachable over the network is
+ * the only thing that makes "persisted status" true in that environment.
+ *
+ * TURSO_DATABASE_URL unset falls back to a local file, which is what you want
+ * while developing and what the tests would use if they touched the database.
+ */
+const url = process.env.TURSO_DATABASE_URL ?? `file:${process.env.DATABASE_FILE ?? 'invoices.db'}`;
+const authToken = process.env.TURSO_AUTH_TOKEN;
 
-export const sqlite = new Database(DB_FILE);
-sqlite.pragma('journal_mode = WAL');
-sqlite.pragma('foreign_keys = ON');
-
-export const db = drizzle(sqlite, { schema });
+export const client = createClient({ url, authToken });
+export const db = drizzle(client, { schema });
 export { schema };
 
 /**
@@ -18,9 +30,11 @@ export { schema };
  * schema is two tables, and keeping the DDL visible in the repo means the
  * reviewer can read the real SQL without running a migration tool. For anything
  * larger this would be a versioned migration directory instead.
+ *
+ * Idempotent, so it is safe to call on every cold start.
  */
-export function initialiseSchema() {
-  sqlite.exec(`
+export async function initialiseSchema() {
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS invoices (
       id                TEXT PRIMARY KEY,
       vendor_name       TEXT NOT NULL,

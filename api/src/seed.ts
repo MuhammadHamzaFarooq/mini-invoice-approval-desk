@@ -15,7 +15,7 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { db, sqlite, initialiseSchema, newId } from './db/index.js';
+import { db, client, initialiseSchema, newId } from './db/index.js';
 import { invoices, statusEvents, type Status } from './db/schema.js';
 import { findDuplicate, type InvoiceLike } from './lib/duplicates.js';
 
@@ -101,11 +101,11 @@ const SEED: SeedRow[] = [
   },
 ];
 
-function run() {
-  initialiseSchema();
+async function run() {
+  await initialiseSchema();
 
-  sqlite.exec('DELETE FROM status_events;');
-  sqlite.exec('DELETE FROM invoices;');
+  await client.execute('DELETE FROM status_events;');
+  await client.execute('DELETE FROM invoices;');
 
   const ingested: (InvoiceLike & { id: string })[] = [];
 
@@ -122,7 +122,8 @@ function run() {
     const id = newId();
     const now = new Date();
 
-    db.insert(invoices)
+    await db
+      .insert(invoices)
       .values({
         id,
         vendorName: row.vendorName,
@@ -140,7 +141,8 @@ function run() {
       })
       .run();
 
-    db.insert(statusEvents)
+    await db
+      .insert(statusEvents)
       .values({
         id: newId('evt'),
         invoiceId: id,
@@ -157,12 +159,14 @@ function run() {
     ingested.push({ id, ...candidate });
 
     if (row.preDecision) {
-      db.update(invoices)
+      await db
+        .update(invoices)
         .set({ status: row.preDecision, updatedAt: now })
         .where(eq(invoices.id, id))
         .run();
 
-      db.insert(statusEvents)
+      await db
+        .insert(statusEvents)
         .values({
           id: newId('evt'),
           invoiceId: id,
@@ -176,26 +180,28 @@ function run() {
     }
   }
 
-  report();
+  await report();
 }
 
-function report() {
-  const rows = sqlite
-    .prepare('SELECT status, COUNT(*) AS n FROM invoices GROUP BY status ORDER BY status')
-    .all() as { status: string; n: number }[];
+async function report() {
+  const rows = (
+    await client.execute(
+      'SELECT status, COUNT(*) AS n FROM invoices GROUP BY status ORDER BY status',
+    )
+  ).rows as unknown as { status: string; n: number }[];
 
   console.log('Seed complete:');
   for (const r of rows) console.log(`  ${r.status.padEnd(13)} ${r.n}`);
 
-  const flagged = sqlite
-    .prepare(
+  const flagged = (
+    await client.execute(
       `SELECT d.vendor_name AS vendor, d.invoice_number AS ref,
               o.invoice_number AS matched, d.duplicate_reason AS reason
          FROM invoices d
          JOIN invoices o ON o.id = d.duplicate_of_id
         WHERE d.status = 'needs_review'`,
     )
-    .all() as { vendor: string; ref: string; matched: string; reason: string }[];
+  ).rows as unknown as { vendor: string; ref: string; matched: string; reason: string }[];
 
   for (const f of flagged) {
     console.log(`  flagged: ${f.vendor} ${f.ref} -> duplicate of ${f.matched}`);
@@ -203,5 +209,5 @@ function report() {
   }
 }
 
-run();
-sqlite.close();
+await run();
+client.close();

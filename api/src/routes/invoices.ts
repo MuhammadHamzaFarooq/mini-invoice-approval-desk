@@ -162,13 +162,18 @@ invoicesRouter.patch(
 
       assertTransition(current.status, next_);
 
-      db.transaction((tx) => {
-        tx.update(invoices)
+      // The status change and its audit row are one transaction: an approval
+      // that is not recorded in the trail, or a trail entry for a change that
+      // did not land, are both worse than a failed request.
+      await db.transaction(async (tx) => {
+        await tx
+          .update(invoices)
           .set({ status: next_, updatedAt: new Date() })
           .where(eq(invoices.id, current.id))
           .run();
 
-        tx.insert(statusEvents)
+        await tx
+          .insert(statusEvents)
           .values({
             id: newId('evt'),
             invoiceId: current.id,
