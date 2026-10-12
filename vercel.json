@@ -2,7 +2,10 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
     "api": {
-      "root": "api"
+      "root": "api",
+      "framework": "express",
+      "entrypoint": "src/index.ts",
+      "installCommand": "npm install"
     },
     "web": {
       "root": "web"
