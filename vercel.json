@@ -1,18 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
-    "api": {
-      "root": "api",
-      "framework": "express",
-      "entrypoint": "src/index.ts",
-      "installCommand": "npm install"
-    },
     "web": {
       "root": "web"
     }
   },
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": { "service": "api" } },
-    { "source": "/(.*)", "destination": { "service": "web" } }
-  ]
+  "rewrites": [{ "source": "/(.*)", "destination": { "service": "web" } }]
 }
