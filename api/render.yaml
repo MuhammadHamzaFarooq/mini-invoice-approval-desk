@@ -1,22 +1,21 @@
 # Render blueprint for the API.
 #
-# Render is used rather than a serverless platform because this API stores
-# state in a SQLite file. Serverless functions get an ephemeral filesystem —
-# a write in one invocation is not visible to the next — so a persistent disk
-# is a hard requirement, not a preference.
-#
-# The disk below is mounted at /data and DATABASE_FILE points into it, so the
-# database survives restarts and redeploys.
+# No persistent disk, and no paid plan needed: state lives in a hosted libSQL
+# (Turso) database reached over the network, so the filesystem is irrelevant and
+# the free instance type is enough. An earlier version of this file mounted a
+# disk because the database was a local SQLite file; swapping the driver removed
+# that requirement entirely.
 #
 # Deploy: Render dashboard -> New -> Blueprint -> pick this repo.
-# Note: persistent disks are a paid feature on Render. See DEPLOYMENT.md for
-# the free alternative (Turso), which needs a small driver change.
+# Then set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in the dashboard (both are
+# marked sync: false so they are never committed), and set CORS_ORIGIN to the
+# deployed frontend's origin.
 
 services:
   - type: web
     name: invoice-approval-desk-api
     runtime: node
-    plan: starter
+    plan: free
     rootDir: api
     buildCommand: npm ci && npm run build
     startCommand: npm start
@@ -24,15 +23,12 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
-      - key: DATABASE_FILE
-        value: /data/invoices.db
-      - key: PORT
-        value: "4000"
-      # Set this to the deployed frontend's origin after the web app is live,
-      # then redeploy. Leave unset and the API allows any origin.
+      # Set in the Render dashboard. Never committed.
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      # The frontend's origin, once it is deployed. Unset allows any origin,
+      # which is fine locally and not in production.
       - key: CORS_ORIGIN
         sync: false
-    disk:
-      name: invoice-data
-      mountPath: /data
-      sizeGB: 1
