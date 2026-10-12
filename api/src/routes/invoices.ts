@@ -1,7 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { eq, inArray, desc, asc, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { db, newId } from '../db/index.js';
+import { getDb, newId, initialiseSchema } from '../db/index.js';
 import { invoices, statusEvents, STATUSES, type Status } from '../db/schema.js';
 import {
   assertTransition,
@@ -12,6 +12,18 @@ import {
 } from '../lib/status.js';
 
 export const invoicesRouter = Router();
+
+/**
+ * Every route below touches the database, so the schema has to exist first.
+ * initialiseSchema() is memoised, so this is one round trip on a cold start and
+ * free afterwards. Doing it here rather than at process start means a database
+ * failure arrives as an error this router can hand to the error handler — which
+ * turns it into a 503 explaining the misconfiguration — instead of crashing the
+ * process before it can serve anything.
+ */
+invoicesRouter.use((_req, _res, next) => {
+  initialiseSchema().then(() => next(), next);
+});
 
 const statusEnum = z.enum(STATUSES);
 
@@ -36,7 +48,7 @@ function serialise<T extends { amountCents: number }>(row: T) {
 }
 
 async function tabCounts() {
-  const rows = await db
+  const rows = await getDb()
     .select({ status: invoices.status, count: sql<number>`count(*)` })
     .from(invoices)
     .groupBy(invoices.status);
@@ -73,7 +85,7 @@ invoicesRouter.get('/', async (req: Request, res: Response, next: NextFunction) 
     if (tab) wanted = TAB_STATUSES[tab];
     else if (status) wanted = Array.isArray(status) ? status : [status];
 
-    const rows = await db.query.invoices.findMany({
+    const rows = await getDb().query.invoices.findMany({
       where: wanted ? inArray(invoices.status, [...wanted]) : undefined,
       orderBy: [desc(invoices.invoiceDate)],
       with: {
@@ -96,7 +108,7 @@ invoicesRouter.get('/', async (req: Request, res: Response, next: NextFunction) 
  */
 invoicesRouter.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const row = await db.query.invoices.findFirst({
+    const row = await getDb().query.invoices.findFirst({
       where: eq(invoices.id, req.params.id),
       with: {
         duplicateOf: true,
@@ -149,7 +161,7 @@ invoicesRouter.patch(
 
       const { status: next_, reason } = parsed.data;
 
-      const current = await db.query.invoices.findFirst({
+      const current = await getDb().query.invoices.findFirst({
         where: eq(invoices.id, req.params.id),
         columns: { id: true, status: true },
       });
@@ -165,7 +177,7 @@ invoicesRouter.patch(
       // The status change and its audit row are one transaction: an approval
       // that is not recorded in the trail, or a trail entry for a change that
       // did not land, are both worse than a failed request.
-      await db.transaction(async (tx) => {
+      await getDb().transaction(async (tx) => {
         await tx
           .update(invoices)
           .set({ status: next_, updatedAt: new Date() })
@@ -186,7 +198,7 @@ invoicesRouter.patch(
           .run();
       });
 
-      const updated = await db.query.invoices.findFirst({
+      const updated = await getDb().query.invoices.findFirst({
         where: eq(invoices.id, current.id),
         with: {
           duplicateOf: true,

@@ -1,5 +1,5 @@
-import { createClient } from '@libsql/client';
-import { drizzle } from 'drizzle-orm/libsql';
+import { createClient, type Client } from '@libsql/client';
+import { drizzle, type LibSQLDatabase } from 'drizzle-orm/libsql';
 import * as schema from './schema.js';
 
 /**
@@ -13,14 +13,60 @@ import * as schema from './schema.js';
  * invocation is not there on the next. A database reachable over the network is
  * the only thing that makes "persisted status" true in that environment.
  *
- * TURSO_DATABASE_URL unset falls back to a local file, which is what you want
- * while developing and what the tests would use if they touched the database.
+ * Everything here is lazy. Connecting at module scope means a misconfigured
+ * deployment crashes on import, which takes down every route including the
+ * health check and reports nothing useful — the failure is then invisible
+ * exactly when you need to see it. Deferring the connection to the first query
+ * turns that into an error a route can catch and explain.
  */
-const url = process.env.TURSO_DATABASE_URL ?? `file:${process.env.DATABASE_FILE ?? 'invoices.db'}`;
-const authToken = process.env.TURSO_AUTH_TOKEN;
 
-export const client = createClient({ url, authToken });
-export const db = drizzle(client, { schema });
+export class DatabaseUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DatabaseUnavailableError';
+  }
+}
+
+function resolveUrl(): string {
+  const url = process.env.TURSO_DATABASE_URL;
+  if (url) return url;
+
+  // A local file on a serverless host is not a usable fallback: the filesystem
+  // is read-only outside /tmp, and anything written to /tmp disappears between
+  // invocations. Silently degrading to it would hide the misconfiguration and
+  // reintroduce exactly the bug this driver exists to avoid, so fail instead.
+  if (process.env.VERCEL) {
+    throw new DatabaseUnavailableError(
+      'TURSO_DATABASE_URL is not set. A serverless deployment needs a database reachable over the network — ' +
+        'a local SQLite file would not persist between invocations. Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN ' +
+        'in the project environment and redeploy.',
+    );
+  }
+
+  return `file:${process.env.DATABASE_FILE ?? 'invoices.db'}`;
+}
+
+let connection: { client: Client; db: LibSQLDatabase<typeof schema> } | null = null;
+
+function connect() {
+  if (!connection) {
+    const client = createClient({
+      url: resolveUrl(),
+      authToken: process.env.TURSO_AUTH_TOKEN,
+    });
+    connection = { client, db: drizzle(client, { schema }) };
+  }
+  return connection;
+}
+
+export function getClient(): Client {
+  return connect().client;
+}
+
+export function getDb(): LibSQLDatabase<typeof schema> {
+  return connect().db;
+}
+
 export { schema };
 
 /**
@@ -31,10 +77,17 @@ export { schema };
  * reviewer can read the real SQL without running a migration tool. For anything
  * larger this would be a versioned migration directory instead.
  *
- * Idempotent, so it is safe to call on every cold start.
+ * Idempotent, and memoised so concurrent requests on a cold start share one
+ * run rather than racing. A failure clears the memo so the next request can
+ * retry instead of being stuck with a rejected promise forever.
  */
-export async function initialiseSchema() {
-  await client.executeMultiple(`
+let schemaReady: Promise<void> | null = null;
+
+export function initialiseSchema(): Promise<void> {
+  if (!schemaReady) {
+    schemaReady = getClient()
+      .executeMultiple(
+        `
     CREATE TABLE IF NOT EXISTS invoices (
       id                TEXT PRIMARY KEY,
       vendor_name       TEXT NOT NULL,
@@ -68,7 +121,29 @@ export async function initialiseSchema() {
 
     CREATE INDEX IF NOT EXISTS status_events_invoice_created_idx
       ON status_events(invoice_id, created_at);
-  `);
+  `,
+      )
+      .catch((err) => {
+        schemaReady = null;
+        throw err;
+      });
+  }
+  return schemaReady;
+}
+
+/**
+ * Reports whether the database is reachable, without throwing. The health
+ * endpoint uses this: "the process is up but the database is misconfigured" is
+ * a different answer from "the process is down", and a health check that cannot
+ * tell them apart is not worth having.
+ */
+export async function databaseStatus(): Promise<{ ok: boolean; detail?: string }> {
+  try {
+    await getClient().execute('SELECT 1');
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /** Short collision-resistant id. No uuid dependency needed for six rows. */

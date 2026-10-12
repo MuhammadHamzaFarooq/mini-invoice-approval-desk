@@ -15,7 +15,7 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { db, client, initialiseSchema, newId } from './db/index.js';
+import { getDb, getClient, initialiseSchema, newId } from './db/index.js';
 import { invoices, statusEvents, type Status } from './db/schema.js';
 import { findDuplicate, type InvoiceLike } from './lib/duplicates.js';
 
@@ -104,8 +104,8 @@ const SEED: SeedRow[] = [
 async function run() {
   await initialiseSchema();
 
-  await client.execute('DELETE FROM status_events;');
-  await client.execute('DELETE FROM invoices;');
+  await getClient().execute('DELETE FROM status_events;');
+  await getClient().execute('DELETE FROM invoices;');
 
   const ingested: (InvoiceLike & { id: string })[] = [];
 
@@ -122,7 +122,7 @@ async function run() {
     const id = newId();
     const now = new Date();
 
-    await db
+    await getDb()
       .insert(invoices)
       .values({
         id,
@@ -141,7 +141,7 @@ async function run() {
       })
       .run();
 
-    await db
+    await getDb()
       .insert(statusEvents)
       .values({
         id: newId('evt'),
@@ -159,13 +159,13 @@ async function run() {
     ingested.push({ id, ...candidate });
 
     if (row.preDecision) {
-      await db
+      await getDb()
         .update(invoices)
         .set({ status: row.preDecision, updatedAt: now })
         .where(eq(invoices.id, id))
         .run();
 
-      await db
+      await getDb()
         .insert(statusEvents)
         .values({
           id: newId('evt'),
@@ -185,7 +185,7 @@ async function run() {
 
 async function report() {
   const rows = (
-    await client.execute(
+    await getClient().execute(
       'SELECT status, COUNT(*) AS n FROM invoices GROUP BY status ORDER BY status',
     )
   ).rows as unknown as { status: string; n: number }[];
@@ -194,7 +194,7 @@ async function report() {
   for (const r of rows) console.log(`  ${r.status.padEnd(13)} ${r.n}`);
 
   const flagged = (
-    await client.execute(
+    await getClient().execute(
       `SELECT d.vendor_name AS vendor, d.invoice_number AS ref,
               o.invoice_number AS matched, d.duplicate_reason AS reason
          FROM invoices d
@@ -210,4 +210,4 @@ async function report() {
 }
 
 await run();
-client.close();
+getClient().close();
