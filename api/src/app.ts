@@ -1,6 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import { invoicesRouter } from './routes/invoices.js';
+import { databaseStatus, DatabaseUnavailableError } from './db/index.js';
 
 /**
  * The Express app, separate from the server entry point in index.ts.
@@ -38,7 +39,17 @@ export function createApp() {
     next();
   });
 
-  app.get('/health', (_req, res) => res.json({ ok: true }));
+  /**
+   * Health deliberately does not depend on the database. It answers 200 while
+   * the process is alive and reports the database separately, so a deployment
+   * with a bad or missing database URL is distinguishable from one that is
+   * simply down — the two have completely different fixes.
+   */
+  app.get('/health', async (_req, res) => {
+    const db = await databaseStatus();
+    res.json({ ok: true, database: db.ok ? 'ok' : 'unavailable', ...(db.ok ? {} : { detail: db.detail }) });
+  });
+
   app.use('/invoices', invoicesRouter);
 
   app.use((_req, res) => {
@@ -47,6 +58,11 @@ export function createApp() {
 
   // Nothing below this point should leak a stack trace to the client.
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+    if (err instanceof DatabaseUnavailableError) {
+      // A misconfiguration, not a bug in a request. Say so plainly: this
+      // message is the fastest route to the fix, and it names no secrets.
+      return res.status(503).json({ error: 'DATABASE_UNAVAILABLE', message: err.message });
+    }
     console.error(err);
     res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Something went wrong.' });
   });
