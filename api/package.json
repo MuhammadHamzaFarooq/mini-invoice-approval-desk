@@ -5,10 +5,10 @@
   "description": "REST API for the mini invoice approval desk",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
     "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/index.js",
-    "db:seed": "tsx src/seed.ts",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "db:seed": "tsx --env-file-if-exists=.env src/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
